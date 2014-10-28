@@ -1,0 +1,43 @@
+server for next-gen ViNCy protocol
+
+----------------------------------
+
+
+This app implements a vnc proxy based on a minimal authentication protocol 
+(ViNCy-ng) and the RFB protocol. 
+
+
+
+Getting started
+
+To install vincy-server, clone this repository. For configuration, create a
+subdirectory named config/ and place these files in it:
+
+./config/hostlist.txt
+TSV list of accessible hosts, column def.:
+Host ID 	IP/Hostname	unused	VNC-Port	VNC-Password	MAC-Addr	unused	unused	Comment
+
+e.g.:
+example1	10.20.30.40	-	5900	topsecret	be:ef:be:ef:be:ef	-	-	Some sample PC
+
+
+./config/vincypasswd
+TSV list of authorized users, column def.:
+Username	SHA1-Password	Comma-separated list of Host IDs
+
+e.g.:
+mw	906072001efddf3e11e6d2b5782f4777fe038739	example1,example2,alpha,beta,gamma
+
+
+Host IDs may be alphanumeric strings
+
+
+Furthermore, you need RSA private/public keys. Use OpenSSL to generate them.
+openssl genrsa -out server-key.pem 4096
+openssl req -new -x509 -key server-key.pem -out server-cert.pem -days 3650
+
+
+To run vincy-server:
+node vincy-server.js
+
+
