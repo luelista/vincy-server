@@ -159,31 +159,26 @@ var server = net.createServer(tlsOptions, function(cleartextStream) {
             bbTarget.request("byte", function(secTypeLen) {  //receive supported sectypes from targetserver
               bbTarget.request(secTypeLen, function(secTypeArray) {
                 Put().word8be(2).write(sTarget); //tell the targetserver to use sectype 0x02=vnc auth
-                bbTarget.request("dword", function(secTypeToUse) {  //receive the sectype from server
-                  if (secTypeToUse != 2) {
-                    console.log("server decided to use unsupported sectype", secTypeToUse); 
-                    Put().word32be(0).word32be(20).write("Security Error(a)   ").write(cleartextStream);tearDown(); return;
-                  }
-                  bbTarget.request(16, function(challenge) {
-                    var response = require('./d3des').response(challenge, host.vncpassword);
-                    sTarget.write(response);
-                    bbTarget.request("dword", function(secResponse) {
-                      if (secResponse == 1 ) {
-                        console.log("security fail from targetserver", secResponse); 
-                        Put().word32be(0).word32be(20).write("Security Error      ").write(cleartextStream);
-                        tearDown(); return;
-                      }
-                      Put().word32be(1).write(cleartextStream);
-            
-                      ws.stopListening();
-                      bbTarget.stopListening();
-            
-                      cleartextStream.write(bbTarget.buffer);
-                      sTarget.write(ws.buffer);
-                      
-                      cleartextStream.pipe(sTarget);
-                      sTarget.pipe(cleartextStream);
-                    })
+                
+                bbTarget.request(16, function(challenge) {
+                  var response = require('./d3des').response(challenge, host.vncpassword);
+                  sTarget.write(response);
+                  bbTarget.request("dword", function(secResponse) {
+                    if (secResponse == 1 ) {
+                      console.log("security fail from targetserver", secResponse); 
+                      Put().word32be(0).word32be(20).write("Security Error      ").write(cleartextStream);
+                      tearDown(); return;
+                    }
+                    Put().word32be(1).write(cleartextStream);
+          
+                    ws.stopListening();
+                    bbTarget.stopListening();
+          
+                    cleartextStream.write(bbTarget.buffer);
+                    sTarget.write(ws.buffer);
+                    
+                    cleartextStream.pipe(sTarget);
+                    sTarget.pipe(cleartextStream);
                   });
                 });
               })

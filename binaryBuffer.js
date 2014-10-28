@@ -25,6 +25,7 @@ BinaryBuffer.prototype.write = function(data) {
 }
 
 BinaryBuffer.prototype.request = function(bytes, callback) {
+  //console.log(this.debugName,"request called",bytes)
   if (typeof bytes == "string") {
     switch(bytes) {
     case "byte":
@@ -53,17 +54,20 @@ BinaryBuffer.prototype.request = function(bytes, callback) {
 
 BinaryBuffer.prototype.process = function() {
   //console.log("Buffer contents: ", this.buffer.length, this.buffer);
+  //console.log(this.debugName, "Process "+this.pendingBytes+"/"+this.buffer.length+" bytes as "+this.pendingType+": (str="+this.buffer.toString("ascii",0,this.pendingBytes).replace(/[^ a-zA-Z0-9:]/g, function(x){return "\\x"+x[0].charCodeAt(0).toString(16)})+")");
+  
   if (this.pendingCallback != null && this.pendingBytes <= this.buffer.length) {
-    console.log("Processing "+this.pendingBytes+" bytes as "+this.pendingType+": (str="+this.buffer.toString("ascii",0,this.pendingBytes).replace(/[^ a-zA-Z0-9:]/g, function(x){return "\\x"+x[0].charCodeAt(0).toString(16)})+")");
+    console.log(this.debugName, "Processing "+this.pendingBytes+" bytes as "+this.pendingType+": (str="+this.buffer.toString("ascii",0,this.pendingBytes).replace(/[^ a-zA-Z0-9:]/g, function(x){return "\\x"+x[0].charCodeAt(0).toString(16)})+")");
     var result = this.buffer.slice(0, this.pendingBytes);
     this.buffer = this.buffer.slice(this.pendingBytes);
     if (this.pendingType) {
       result = result[this.pendingType](0);
     }
-    console.log("    ", result);
-    this.pendingCallback(result);
+    console.log("           = ", result);
+    var cb = this.pendingCallback;
     this.pendingCallback = null;
     this.pendingBytes = 0;
+    cb(result);
   }
 }
 
