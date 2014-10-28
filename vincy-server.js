@@ -1,7 +1,7 @@
 var net = require("net"),
     tls = require("tls"),
     fs = require("fs"),
-    binary = require("binary"),
+    BinaryBuffer = require("./binaryBuffer"),
     Put = require("put"),
     crypto = require("crypto");
 
@@ -24,17 +24,20 @@ var server = net.createServer(tlsOptions, function(cleartextStream) {
     console.log("Stream error: "+err);
   })
   
-  var ws = binary()
-  .buffer("versionStr", 12)
-  .word16lu("uaLen").buffer("ua", "uaLen")
-  .tap(function(v) {
-    var vrstr = v.versionStr.toString("ascii");
+  var ws = new BinaryBuffer(cleartextStream);
+  ws.request(12, function(versionStr) {
+    var vrstr = versionStr.toString("ascii");
     if (vrstr.match("VINCY-(......)")) {
       client.version = vrstr;
-      client.ua = v.ua.toString("ascii");
-      console.log("Protocol version: "+vrstr+" UA: "+client.ua);
-      cleartextStream.write(new Buffer("VINCY-SERVER")); 
-      requestAuth();
+      ws.request("word", function(uaLength) {
+        ws.request(uaLength, function(uaBuf) {
+          client.ua = uaBuf.toString("ascii");
+          console.log("Protocol version: "+vrstr+" UA: "+client.ua);
+          cleartextStream.write(new Buffer("VINCY-SERVER")); 
+          requestAuth();
+        });
+      });
+      
     } else {
       console.log("invalid magic str: "+vrstr);
       sendErrmes("Invalid magic str.");
@@ -42,44 +45,46 @@ var server = net.createServer(tlsOptions, function(cleartextStream) {
       cleartextStream.end();
     }
   });
-  ws.debugName="-> ws"
+  
+  ws.debugName="-> ws";
   
   function requestAuth() {
-    ws.word16lu("reserved1")
-    .word16lu("userLen").buffer("user", "userLen")
-    .word16lu("passLen").buffer("pass", "passLen")
-    .tap(function(v) {
-      var user = v.user.toString("ascii"), pass = v.pass.toString("ascii");
-      var shasum = crypto.createHash('sha1');
-      var passHash = shasum.update(pass).digest('hex');
-      var users = getUserlist();
-      for(var i = 0; i<users.length; i++) {
-        if (users[i].username == user && users[i].password == passHash) {
-          Put().word16le(0).write(cleartextStream);
-          client.user = users[i];
-          authSuccess();
-          return;
+    ws.request(4, function(buf) {
+      var reserved1 = buf.readUInt16BE(0),
+          authLen = buf.readUInt16BE(2);
+      ws.request(authLen, function(buf) {
+        var auth = buf.toString("ascii").split(/:/, 2);
+        if (auth.length==2) {
+          var user=auth[0], pass=auth[1];
+          var shasum = crypto.createHash('sha1');
+          var passHash = shasum.update(pass).digest('hex');
+          var users = getUserlist();
+          for(var i = 0; i<users.length; i++) {
+            if (users[i].username == user && users[i].password == passHash) {
+              Put().word16le(0).write(cleartextStream);
+              client.user = users[i];
+              hostlist = getHostlist();
+              authSuccess();
+              return;
+            }
+          }
         }
-      }
-      sendErrmes("Invalid username or password.");
-    });
+        sendErrmes("Invalid username or password.");
+      })
+    })
   }
   
   function sendErrmes(str) {
     var errMes = new Buffer(str);
-    Put().word16le(errMes.length).put(errMes).write(cleartextStream);
+    Put().word16be(errMes.length).put(errMes).write(cleartextStream);
   }
   
   function authSuccess() {
-    hostlist = getHostlist();
-    ws//.loop(function(end, v) {
-      //this
-      .word16le("command")
-      .word16le("argLen")
-      .buffer("arg", "argLen")
-      .tap(function(v) {
-        var cmdArg = v.arg.toString("ascii");
-        switch(v.command) {
+    ws.request(4, function(buf) {
+      var command = buf.readUInt16BE(0), argLen = buf.readUInt16BE(2);
+      ws.request(argLen, function(buf) {
+        var cmdArg = buf.toString("ascii");
+        switch(command) {
         case 0x01:
           //retrieve hostlist
           cmd_hostlist();
@@ -92,8 +97,8 @@ var server = net.createServer(tlsOptions, function(cleartextStream) {
           sendErrmes("Unknown command.");
           break;
         }
-      });
-      //});
+      })
+    })
   }
   
   function cmd_hostlist() {
@@ -103,7 +108,7 @@ var server = net.createServer(tlsOptions, function(cleartextStream) {
       out += hostlist[i].id+"\t"+hostlist[i].hostname+"\t"+hostlist[i].tunnel+"\t"+hostlist[i].comment+"\n";
     }
     var outBuf = new Buffer(out);
-    Put().word16le(0).word16le(outBuf.length).put(outBuf).write(cleartextStream);
+    Put().word16be(0).word16be(outBuf.length).put(outBuf).write(cleartextStream);
   }
   
   function cmd_connectVnc(ws, targetId) {
@@ -114,7 +119,7 @@ var server = net.createServer(tlsOptions, function(cleartextStream) {
     for(var i in hostlist ) {
       var host = hostlist[i];
       if(host.id==targetId) {
-        Put().word16le(0).write(cleartextStream);
+        Put().word16be(0).write(cleartextStream);
         startVncPipe(host);
         
         return;
@@ -124,59 +129,75 @@ var server = net.createServer(tlsOptions, function(cleartextStream) {
   }
   
   function startVncPipe(host) {
-    
-    var newStream = net.connect(host.vncport, host.hostname);
-    newStream.on("error", function(err) {
-      sendErrmes("Network error: "+err);
+    console.log("starting vnc connection to "+host.hostname+":"+host.vncport);
+    var sTarget = net.connect(host.vncport, host.hostname, function() {
+      console.log("vnc connection established");
+    });
+    sTarget.on("error", function(err) {
+      sendErrmes("Network error: "+err); tearDown();
     });
     
-    var rfb = binary()
-    .buffer("prelude", 12)
-    .tap(function(v) {
-      console.log("received server prelude:"+v.prelude);
-      
-      Put().put(v.prelude).write(cleartextStream);
-      ws
-      .buffer("prelude2", 12)
-      .tap(function(v) {
-        console.log("received client prelude: "+v.prelude2);
-        Put().word8le(1).word8le(1).write(cleartextStream);
-        Put().put(v.prelude2).write(newStream);
-      });/*
-      .word8lu("secType")
-      .tap(function(v) {
-        if (v.secType == 1) {
-          Put().word32le(1).write(cleartextStream);
-          
-          rfb.word8le("secTypeLen").buffer("secTypes", "secTypeLen")
-          .buffer("challenge", 16)
-          .tap(function(v) {
-            var response = require('./d3des').response(v.challenge, host.vncpassword);
-            newStream.write(response);
-            
-          })
-          .word32le("secResponse")
-          tap(function(v) {
-            newStream.unpipe();
-            cleartextStream.unpipe();
-            
-            cleartextStream.write(rfb._internalBuffer.toBuffer());
-            newStream.write(ws._internalBuffer.toBuffer());
-            
-            cleartextStream.pipe(newStream);
-            newStream.pipe(cleartextStream);
-          });
-          
-        }
-      });*/
-      
-    });
-    rfb.debugName="<- vncServer";
-    newStream.pipe(rfb);
+    function tearDown() {
+      console.log("Tearing down connection");
+      sTarget.end(); cleartextStream.end();
+    }
     
+    var bbTarget = new BinaryBuffer(sTarget);
+    bbTarget.request(12, function(prelude) {
+      console.log("received server prelude:"+prelude);
+      
+      Put().put(prelude).write(cleartextStream); //pass the prelude received from targetserver to client
+      
+      ws.request(12, function(prelude2) {
+        console.log("received client prelude: "+prelude2);
+        Put().word8be(1).word8be(1).write(cleartextStream); //tell the client the available sectypes (only 0x01)
+        Put().put(prelude2).write(sTarget); //pass the prelude from client to the targetserver
+        
+        ws.request("byte", function(secType) {
+          if (secType == 1) {
+            
+            bbTarget.request("byte", function(secTypeLen) {  //receive supported sectypes from targetserver
+              bbTarget.request(secTypeLen, function(secTypeArray) {
+                Put().word8be(2).write(sTarget); //tell the targetserver to use sectype 0x02=vnc auth
+                bbTarget.request("dword", function(secTypeToUse) {  //receive the sectype from server
+                  if (secTypeToUse != 2) {
+                    console.log("server decided to use unsupported sectype", secTypeToUse); 
+                    Put().word32be(0).word32be(20).write("Security Error(a)   ").write(cleartextStream);tearDown(); return;
+                  }
+                  bbTarget.request(16, function(challenge) {
+                    var response = require('./d3des').response(challenge, host.vncpassword);
+                    sTarget.write(response);
+                    bbTarget.request("dword", function(secResponse) {
+                      if (secResponse == 1 ) {
+                        console.log("security fail from targetserver", secResponse); 
+                        Put().word32be(0).word32be(20).write("Security Error      ").write(cleartextStream);
+                        tearDown(); return;
+                      }
+                      Put().word32be(1).write(cleartextStream);
+            
+                      ws.stopListening();
+                      bbTarget.stopListening();
+            
+                      cleartextStream.write(bbTarget.buffer);
+                      sTarget.write(ws.buffer);
+                      
+                      cleartextStream.pipe(sTarget);
+                      sTarget.pipe(cleartextStream);
+                    })
+                  });
+                });
+              })
+            });
+          } else {
+            console.log("client decided to use unsupported sectype", secTypeToUse); 
+            Put().word32be(0).word32be(20).write("Security Error(c)   ").write(cleartextStream);tearDown(); return;
+          
+          }
+        });
+      });
+    });
+    bbTarget.debugName="<- vncServer";
   }
-  
-  cleartextStream.pipe(ws);
 });
 
 
