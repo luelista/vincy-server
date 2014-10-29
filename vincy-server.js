@@ -6,16 +6,24 @@ var net = require("net"),
     crypto = require("crypto");
 
 
+console.log("\n---------------------------------------------\n\
+vincy-server 0.0.1\n\
+Copyright (c) 2014 Max Weller\n\
+This program comes with ABSOLUTELY NO WARRANTY; This is free software, and\n\
+you are welcome to redistribute it under certain conditions; see LICENSE\n\
+file in this folder for details.\n\
+---------------------------------------------\n\
+");
 
 var confDir = process.env.VINCY_DIR || "./config";
 
 var tlsOptions = {
-  //key: fs.readFileSync(confDir + "/server-key.pem"),
-  //cert: fs.readFileSync(confDir + "/server-cert.pem"),
+  key: fs.readFileSync(confDir + "/server-key.pem"),
+  cert: fs.readFileSync(confDir + "/server-cert.pem"),
   
 };
 
-var server = net.createServer(tlsOptions, function(cleartextStream) {
+var server = tls.createServer(tlsOptions, function(cleartextStream) {
   console.log("------------------------");
   var client = {};
   var hostlist;
@@ -78,6 +86,10 @@ var server = net.createServer(tlsOptions, function(cleartextStream) {
     var errMes = new Buffer(str);
     Put().word16be(errMes.length).put(errMes).write(cleartextStream);
   }
+  function sendErrmesVNC(str) {
+    var errMes = new Buffer(str);
+    Put().word32be(1).word32be(errMes.length).put(errMes).write(cleartextStream);
+  }
   
   function authSuccess() {
     ws.request(4, function(buf) {
@@ -109,6 +121,7 @@ var server = net.createServer(tlsOptions, function(cleartextStream) {
     }
     var outBuf = new Buffer(out);
     Put().word16be(0).word16be(outBuf.length).put(outBuf).write(cleartextStream);
+    cleartextStream.end();
   }
   
   function cmd_connectVnc(ws, targetId) {
@@ -119,7 +132,7 @@ var server = net.createServer(tlsOptions, function(cleartextStream) {
     for(var i in hostlist ) {
       var host = hostlist[i];
       if(host.id==targetId) {
-        Put().word16be(0).write(cleartextStream);
+        Put().word16be(0x00).write(cleartextStream); //tell the vincy client everything's fine
         startVncPipe(host);
         
         return;
@@ -146,49 +159,76 @@ var server = net.createServer(tlsOptions, function(cleartextStream) {
     bbTarget.request(12, function(prelude) {
       console.log("received server prelude:"+prelude);
       
+      
       Put().put(prelude).write(cleartextStream); //pass the prelude received from targetserver to client
       
       ws.request(12, function(prelude2) {
         console.log("received client prelude: "+prelude2);
-        Put().word8be(1).word8be(1).write(cleartextStream); //tell the client the available sectypes (only 0x01)
+        var clientPrelude = prelude2.toString("ascii").trim(),
+            oldClient = (clientPrelude == "RFB 003.003" || clientPrelude == "RFB 003.007");
+        
         Put().put(prelude2).write(sTarget); //pass the prelude from client to the targetserver
         
-        ws.request("byte", function(secType) {
-          if (secType == 1) {
-            
-            bbTarget.request("byte", function(secTypeLen) {  //receive supported sectypes from targetserver
-              bbTarget.request(secTypeLen, function(secTypeArray) {
-                Put().word8be(2).write(sTarget); //tell the targetserver to use sectype 0x02=vnc auth
-                
-                bbTarget.request(16, function(challenge) {
-                  var response = require('./d3des').response(challenge, host.vncpassword);
-                  sTarget.write(response);
-                  bbTarget.request("dword", function(secResponse) {
-                    if (secResponse == 1 ) {
-                      console.log("security fail from targetserver", secResponse); 
-                      Put().word32be(0).word32be(20).write("Security Error      ").write(cleartextStream);
-                      tearDown(); return;
-                    }
-                    Put().word32be(1).write(cleartextStream);
-          
-                    ws.stopListening();
-                    bbTarget.stopListening();
-          
-                    cleartextStream.write(bbTarget.buffer);
-                    sTarget.write(ws.buffer);
-                    
-                    cleartextStream.pipe(sTarget);
-                    sTarget.pipe(cleartextStream);
-                  });
-                });
-              })
+        if (oldClient) { //f*cking borked apple vnc client!
+          Put().word32be(0x02).put(new Buffer(16).fill(20)).write(cleartextStream); //tell the client what sectype to use
+          ws.request(16, function(throwAway) {
+            //Put().word32be(0x00).write(cleartextStream); //say login is ok (not checking...)
+            bbTarget.request("dword", function(secType) {  //ask server what secType to use (old rfb protocol...)
+              if (secType != 0x02) {
+                console.log("server decided to use unsupported sectype", secType); 
+                sendErrmesVNC("server decided to use unsupported sectype"); tearDown(); return;
+              }
+              secContinue();
             });
-          } else {
-            console.log("client decided to use unsupported sectype", secTypeToUse); 
-            Put().word32be(0).word32be(20).write("Security Error(c)   ").write(cleartextStream);tearDown(); return;
-          
-          }
-        });
+          });
+        } else {
+          Put().word8be(1).word8be(1).write(cleartextStream); //tell the client the available sectypes (only 0x01)
+          ws.request("byte", function(secType) {
+            if (secType == 1) {
+              bbTarget.request("byte", function(secTypeLen) {  //receive supported sectypes from targetserver
+                bbTarget.request(secTypeLen, function(secTypeArray) {
+                  Put().word8be(2).write(sTarget); //tell the targetserver to use sectype 0x02=vnc auth
+                  secContinue();
+                });
+              });
+            } else {
+              console.log("client decided to use unsupported sectype", secTypeToUse); 
+              sendErrmesVNC("client decided to use unsupported sectype"); tearDown(); return;
+            }
+          });
+        }
+        function secContinue() {
+          bbTarget.request(16, function(challenge) {
+            var response = require('./d3des').response(challenge, host.vncpassword);
+            sTarget.write(response);
+            bbTarget.request("dword", function(secResponse) {
+              // received securityResponse 0x01 ? ...so there is an error
+              if (secResponse == 1 ) {
+                console.log("security fail from targetserver", secResponse); 
+                bbTarget.request("dword", function(secErrLen) {
+                  bbTarget.request(secErrLen, function(secErr) {
+                    console.log("sec err:", secErr.toString());
+                    sendErrmesVNC(secErr.toString());
+                    tearDown(); 
+                  })
+                })
+                
+                return;
+              }
+              Put().word32be(0).write(cleartextStream); 
+                      //send the securityResponse 0x00 - this means everything all right
+              
+              ws.stopListening();
+              bbTarget.stopListening();
+    
+              cleartextStream.write(bbTarget.buffer);
+              sTarget.write(ws.buffer);
+              
+              cleartextStream.pipe(sTarget);
+              sTarget.pipe(cleartextStream);
+            })
+          });
+        }
       });
     });
     bbTarget.debugName="<- vncServer";

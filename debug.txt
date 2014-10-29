@@ -1,0 +1,12 @@
+
+#simulate a vnc target server
+cat <(echo "RFB 003.008\n\0x01\0x02\0x00\0x00\0x00\0x02xxxxxxxxxxxxxxxxyyyyyyyyyyyyyyyyyyyyyyyy") - | nc -l 5900  | hexdump -C
+
+
+# simulate a vincy client + rfb client
+
+(echo -n "VINCY-000000\x00\x1Bnetcat Professional Edition\x00\x00\x00\x09mw:geheim\x00\x02\x00\x03ex1RFB 003.008\n\0x01xxxxxxxxxxxxxxxxxxxxxxx"; sleep 6) | nc localhost 9292 | hexdump -C
+
+(echo -n "VINCY-000000\x00\x1Bnetcat Professional Edition\x00\x00\x00\x09mw:geheim\x00\x02\x00\x06turnipRFB 003.008\n\0x01xxxxxxxxxxxxxxxxxxxxxxx"; sleep 6) | nc localhost 9292 | hexdump -C
+
+
