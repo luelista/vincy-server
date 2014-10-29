@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "ping": "^0.1.8",
     "put": "0.0.6"
   }
 }
