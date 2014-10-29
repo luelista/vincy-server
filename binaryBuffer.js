@@ -29,7 +29,7 @@ BinaryBuffer.prototype.write = function(data) {
 BinaryBuffer.datatypeShortcuts = {
   byte: [ "readUInt8", 1],
   word: [ "readUInt16BE", 2],
-  dword: ["readUInt32BE", 8]
+  dword: ["readUInt32BE", 4]
 }
 
 BinaryBuffer.prototype.request = function(bytes, callback) {
