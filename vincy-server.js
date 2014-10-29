@@ -3,7 +3,8 @@ var net = require("net"),
     fs = require("fs"),
     BinaryBuffer = require("./binaryBuffer"),
     Put = require("put"),
-    crypto = require("crypto");
+    crypto = require("crypto")
+    ping = require("ping");
 
 
 console.log("\n---------------------------------------------\n\
