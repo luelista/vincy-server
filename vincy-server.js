@@ -22,6 +22,11 @@ try {
   config = JSON.parse(fs.readFileSync(confDir+"/config.json"));
 }catch(Ex) {}
 
+if (process.argv.length == 3 && process.argv[2] == "-hostlist") {
+  printHostlist();
+  return;
+}
+
 var pingInterval = config.ping_interval || 120000;
 var pingResults = {};
 
@@ -124,8 +129,9 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
     var out = "";
     for(var i in hostlist ) {
       var d = hostlist[i];
-      if (client.user.allowedhosts.indexOf(d.id) == -1) continue;
-      out += d.id+"\t"+d.hostname+"\t"+d.tunnel+"\t"+pingResults[d.id]+"\t"+d.comment+"\n";
+      if (client.user.allowedhosts.indexOf(targetId) == -1 &&
+          client.user.allowedhosts.indexOf("%"+host.group) == -1) continue;
+      out += d.id+"\t"+d.hostname+"\t"+d.group+"\t"+pingResults[d.id]+"\t"+d.macaddress+"\t"+d.comment+"\n";
     }
     var outBuf = new Buffer(out);
     Put().word16be(0).word16be(outBuf.length).put(outBuf).write(cleartextStream);
@@ -271,7 +277,11 @@ function getUserlist() {
 
 server.listen(config.listen_port || 44711);
 
-
+function printHostlist() {
+  var h = getHostlist();
+  console.log(h.map(function(x){return x.id;}).join(","));
+  
+}
 
 function doPingProbe() {
   var hosts = getHostlist();
