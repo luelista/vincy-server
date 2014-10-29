@@ -21,10 +21,12 @@ try {
   config = JSON.parse(fs.readFileSync(confDir+"/config.json"));
 }catch(Ex) {}
 
+var pingInterval = config.ping_interval || 120000;
+var pingResults = {};
+
 var tlsOptions = {
   key: fs.readFileSync(confDir + "/server-key.pem"),
-  cert: fs.readFileSync(confDir + "/server-cert.pem"),
-  
+  cert: fs.readFileSync(confDir + "/server-cert.pem")
 };
 
 var server = tls.createServer(tlsOptions, function(cleartextStream) {
@@ -120,8 +122,9 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
   function cmd_hostlist() {
     var out = "";
     for(var i in hostlist ) {
-      if (client.user.allowedhosts.indexOf(hostlist[i].id) == -1) continue;
-      out += hostlist[i].id+"\t"+hostlist[i].hostname+"\t"+hostlist[i].tunnel+"\t"+hostlist[i].comment+"\n";
+      var d = hostlist[i];
+      if (client.user.allowedhosts.indexOf(d.id) == -1) continue;
+      out += d.id+"\t"+d.hostname+"\t"+d.tunnel+"\t"+pingResults[d.id]+"\t"+d.comment+"\n";
     }
     var outBuf = new Buffer(out);
     Put().word16be(0).word16be(outBuf.length).put(outBuf).write(cleartextStream);
@@ -266,4 +269,26 @@ function getUserlist() {
 }
 
 server.listen(config.listen_port || 44711);
+
+
+
+function doPingProbe() {
+  var hosts = getHostlist();
+  hosts.forEach(function (host) {
+    ping.sys.probe(host.hostname, function(isAlive){
+      var msg = isAlive ? 'host ' + host.id + ' is alive' : 'host ' + host.id + ' is dead';
+      if (isAlive !== pingResults[host.id]) fs.appendFileSync('/tmp/pingprobes.log', new Date()+"\t"+msg+"\n");
+      pingResults[host.id] = isAlive;
+    });
+  });
+}
+
+setInterval(function() {
+  doPingProbe();
+}, pingInterval);
+
+setTimeout(function() {
+  doPingProbe();
+}, 4000);
+
 

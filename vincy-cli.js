@@ -70,6 +70,7 @@ function connect(vUrl, cb) {
       
     })
   })
+  return stream;
 }
 
 function listHosts(vUrl, args) {
@@ -91,8 +92,13 @@ function connectHost(vUrl, args) {
   var somePort = args.named['-port'] || 49152+ (stringHashCode(hostId)%5000);
   net.createServer(function(localStream) {
     localStream.pause();
+    
     //localStream.on("data", function(buf) { console.log("Data from vnc:",buf,""+buf) });
-    connect(vUrl, function(stream, bin) {
+    var proxyStream = connect(vUrl, function(stream, bin) {
+      localStream.on("end", function() {
+        console.log("Connection gracefully closed.");
+        process.exit(200);
+      })
       //stream.on("data", function(buf) { console.log("Data from server:",buf,""+buf) });
       BinaryBuffer.writeWord(stream, 0x02);
       BinaryBuffer.writeVbStr(stream, hostId);
@@ -113,6 +119,10 @@ function connectHost(vUrl, args) {
         stream.pipe(localStream);
       })
     });
+    proxyStream.on("error", function(err) {
+      console.log("ERROR in proxyConnection: "+ err);
+      localStream.end();
+    })
   }).listen(somePort);
   
   runVncViewer(somePort);
