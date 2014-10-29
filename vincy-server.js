@@ -16,6 +16,10 @@ file in this folder for details.\n\
 ");
 
 var confDir = process.env.VINCY_DIR || "./config";
+config = {};
+try {
+  config = JSON.parse(fs.readFileSync(confDir+"/config.json"));
+}catch(Ex) {}
 
 var tlsOptions = {
   key: fs.readFileSync(confDir + "/server-key.pem"),
@@ -260,5 +264,5 @@ function getUserlist() {
   return users;
 }
 
-server.listen(9292);
+server.listen(config.listen_port || 44711);
 
