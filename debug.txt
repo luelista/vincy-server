@@ -10,3 +10,7 @@ cat <(echo "RFB 003.008\n\0x01\0x02\0x00\0x00\0x00\0x02xxxxxxxxxxxxxxxxyyyyyyyyy
 (echo -n "VINCY-000000\x00\x1Bnetcat Professional Edition\x00\x00\x00\x09mw:geheim\x00\x02\x00\x06turnipRFB 003.008\n\0x01xxxxxxxxxxxxxxxxxxxxxxx"; sleep 6) | nc localhost 9292 | hexdump -C
 
 
+# print all hostnames from hostlist, comma separated
+cat hostlist.txt | awk '$1 != "" && !/#/ { print $1 }'|tr '\n' ','; echo ""
+
+

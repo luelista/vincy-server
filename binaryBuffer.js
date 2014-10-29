@@ -26,38 +26,28 @@ BinaryBuffer.prototype.write = function(data) {
   this.process();
 }
 
+BinaryBuffer.datatypeShortcuts = {
+  byte: [ "readUInt8", 1],
+  word: [ "readUInt16BE", 2],
+  dword: ["readUInt32BE", 8]
+}
+
 BinaryBuffer.prototype.request = function(bytes, callback) {
   //console.log(this.debugName,"request called",bytes)
-  if (typeof bytes == "string") {
-    switch(bytes) {
-    case "byte":
-      this.pendingType = "readUInt8";
-      this.pendingBytes = 1;
-      break;
-    case "word":
-      this.pendingType = "readUInt16BE";
-      this.pendingBytes = 2;
-      break;
-    case "dword":
-      this.pendingType = "readUInt32BE";
-      this.pendingBytes = 4;
-      break;
-    default:
-      throw "BinaryBuffer: Invalid request type";
-      break;
-    }
-  } else {
+  if (typeof bytes == "number") {
     this.pendingType = "";
     this.pendingBytes = bytes;
+  } else if (bytes in BinaryBuffer.datatypeShortcuts) {
+    this.pendingType = BinaryBuffer.datatypeShortcuts[bytes][0];
+    this.pendingBytes = BinaryBuffer.datatypeShortcuts[bytes][1];
+  } else {
+    throw "BinaryBuffer: Invalid request type";
   }
   this.pendingCallback = callback;
   this.process();
 }
 
 BinaryBuffer.prototype.process = function() {
-  //console.log("Buffer contents: ", this.buffer.length, this.buffer);
-  //console.log(this.debugName, "Process "+this.pendingBytes+"/"+this.buffer.length+" bytes as "+this.pendingType+": (str="+this.buffer.toString("ascii",0,this.pendingBytes).replace(/[^ a-zA-Z0-9:]/g, function(x){return "\\x"+x[0].charCodeAt(0).toString(16)})+")");
-  
   if (this.pendingCallback != null && this.pendingBytes <= this.buffer.length) {
     if(this.debugName)console.log(this.debugName, "Processing "+this.pendingBytes+" bytes as "+this.pendingType+": (str="+this.buffer.toString("ascii",0,this.pendingBytes).replace(/[^ a-zA-Z0-9:]/g, function(x){return "\\x"+x[0].charCodeAt(0).toString(16)})+")");
     var result = this.buffer.slice(0, this.pendingBytes);

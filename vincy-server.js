@@ -125,13 +125,15 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
   }
   
   function cmd_connectVnc(ws, targetId) {
-    if (client.user.allowedhosts.indexOf(targetId) == -1) {
-      sendErrmes("Forbidden."); return;
-    }
+    
     var out = "";
     for(var i in hostlist ) {
       var host = hostlist[i];
       if(host.id==targetId) {
+        if (client.user.allowedhosts.indexOf(targetId) == -1 &&
+            client.user.allowedhosts.indexOf("%"+host.group) == -1) {
+          sendErrmes("Forbidden."); return;
+        }
         Put().word16be(0x00).write(cleartextStream); //tell the vincy client everything's fine
         startVncPipe(host);
         
@@ -242,7 +244,7 @@ function getHostlist() {
   for(var i in hostlist) {
     if (/^(#.*)?$/.test(hostlist[i])) continue;
     var h = hostlist[i].split(/\t/);
-    hosts.push({ 'id': h[0], 'hostname': h[1], 'tunnel': h[2], 'vncport': h[3], 'vncpassword': h[4], 
+    hosts.push({ 'id': h[0], 'hostname': h[1], 'group': h[2], 'vncport': h[3], 'vncpassword': h[4], 
     'macaddress': h[5], 'comment': h[8] });
   }
   return hosts;
