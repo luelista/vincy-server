@@ -47,7 +47,7 @@ function connect(vUrl, cb) {
   var stream = tls.connect({
     port: vUrl.port, host: vUrl.hostname,
     ca: [ fs.readFileSync("config/server-cert.pem") ],
-    servername: "merlin.local"
+    servername: "vincy-server"
   }, function() {
     var bin = new BinaryBuffer(stream);
     stream.write(new Buffer("VINCY-"+protoVersion, "ascii"));
@@ -61,7 +61,7 @@ function connect(vUrl, cb) {
           cb(stream, bin);
         } else {
           bin.request(authResponse, function(authErrMsg) {
-            console.log("Auth error: ", authErrMsg);
+            console.log("Auth error: "+authErrMsg);
             process.exit(403);
           });
         }
