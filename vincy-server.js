@@ -176,7 +176,7 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
         Put().put(prelude2).write(sTarget); //pass the prelude from client to the targetserver
         
         if (oldClient) { //f*cking borked apple vnc client!
-          var emptyChallenge = new Buffer(16).fill(16);
+          var emptyChallenge = new Buffer(16); emptyChallenge.fill(0);
           Put().word32be(0x02).put(emptyChallenge).write(cleartextStream); //tell the client what sectype to use
           ws.request(16, function(throwAway) {
             //Put().word32be(0x00).write(cleartextStream); //say login is ok (not checking...)
