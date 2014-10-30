@@ -260,7 +260,7 @@ function getHostlist() {
     if (/^(#.*)?$/.test(hostlist[i])) continue;
     var h = hostlist[i].split(/\t/);
     hosts.push({ 'id': h[0], 'hostname': h[1], 'group': h[2], 'vncport': h[3], 'vncpassword': h[4], 
-    'macaddress': h[5], 'comment': h[8] });
+    'macaddress': h[5]?h[5]:"", 'comment': h[8]?h[8]:'' });
   }
   return hosts;
 }
