@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "ping": "^0.1.8",
-    "put": "0.0.6"
+    "put": "0.0.6",
+		"wake_on_lan": "*"
   }
 }

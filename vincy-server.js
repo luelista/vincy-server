@@ -4,7 +4,8 @@ var net = require("net"),
     BinaryBuffer = require("./binaryBuffer"),
     Put = require("put"),
     crypto = require("crypto")
-    ping = require("ping");
+    ping = require("ping"),
+    wol = require("wake_on_lan");
 
 
 console.log("\n---------------------------------------------\n\
@@ -29,6 +30,8 @@ if (process.argv.length == 3 && process.argv[2] == "-hostlist") {
 
 var pingInterval = config.ping_interval || 120000;
 var pingResults = {};
+
+var currConns = {};
 
 var tlsOptions = {
   key: fs.readFileSync(confDir + "/server-key.pem"),
@@ -94,13 +97,18 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
     })
   }
   
-  function sendErrmes(str) {
-    var errMes = new Buffer(str);
-    Put().word16be(errMes.length).put(errMes).write(cleartextStream);
+  function sendErrmes(str, andClose) {
+    try {
+      var errMes = new Buffer(str);
+      Put().word16be(errMes.length).put(errMes).write(cleartextStream);
+      if (andClose)  cleartextStream.end();
+    } catch(ex) { console.log("Error sending error message ''"+str+"'': "+ex); }
   }
   function sendErrmesVNC(str) {
-    var errMes = new Buffer(str);
-    Put().word32be(1).word32be(errMes.length).put(errMes).write(cleartextStream);
+    try {
+      var errMes = new Buffer(str);
+      Put().word32be(1).word32be(errMes.length).put(errMes).write(cleartextStream);
+    } catch(ex) { console.log("Error sending VNC error message ''"+str+"'': "+ex); }
   }
   
   function authSuccess() {
@@ -117,20 +125,42 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
           //end();
           cmd_connectVnc(this, cmdArg);
           break;
+        case 0x03:
+          cmd_sendWakeonlan(cmdArg);
+          break;
         default:
-          sendErrmes("Unknown command.");
+          sendErrmes("Unknown command.", true);
           break;
         }
       })
     })
   }
   
+  function isAuthorized(host) {
+    return (client.user.allowedhosts.indexOf(host.id) > -1 ||
+        client.user.allowedhosts.indexOf("%"+host.group) > -1);
+  }
+  function getHostById(id) {
+    for(var i in hostlist ) {
+      var host = hostlist[i];
+      if(host.id==id) {
+        return host;
+      }
+    }
+    return null;
+  }
+  function getRemoteEnd() {
+    return cleartextStream.remoteAddress+":"+cleartextStream.remotePort;
+  }
+  function writeAuditLog(action,param) {
+        fs.appendFileSync("/tmp/vincy.log", new Date()+"\t"+client.user.username+"\t"+getRemoteEnd()+"\t"+action+"\t"+param+"\n");
+  }
+  
   function cmd_hostlist() {
     var out = "";
     for(var i in hostlist ) {
       var d = hostlist[i];
-      if (client.user.allowedhosts.indexOf(d.id) == -1 &&
-          client.user.allowedhosts.indexOf("%"+d.group) == -1) continue;
+      if (!isAuthorized(d)) continue;
       out += d.id+"\t"+d.hostname+"\t"+d.group+"\t"+pingResults[d.id]+"\t"+d.macaddress+"\t"+d.comment+"\n";
     }
     var outBuf = new Buffer(out);
@@ -138,26 +168,44 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
     cleartextStream.end();
   }
   
-  function cmd_connectVnc(ws, targetId) {
+  function cmd_sendWakeonlan(targetId) {
+    var host = getHostById(targetId);
     
-    var out = "";
-    for(var i in hostlist ) {
-      var host = hostlist[i];
-      if(host.id==targetId) {
-        if (client.user.allowedhosts.indexOf(targetId) == -1 &&
-            client.user.allowedhosts.indexOf("%"+host.group) == -1) {
-          sendErrmes("Forbidden."); return;
-        }
-        Put().word16be(0x00).write(cleartextStream); //tell the vincy client everything's fine
-        startVncPipe(host);
-        
-        return;
+    if(!host)               { sendErrmes("Host not found.", true); return; }
+    if(!isAuthorized(host)) { sendErrmes("Forbidden.", true); return; }
+    if(!host.macaddress || host.macaddress.length<12) { sendErrmes("Internal error", true); return; }
+    
+    writeAuditLog("WakeOnLan", targetId);
+    
+    wol.wake(host.macaddress, function(error) {
+      if (error) {
+        sendErrmes("Wake on lan failed: "+error, true);
+      } else {
+        try {
+          Put().word16be(0x00).write(cleartextStream); //tell the vincy client everything's fine
+          cleartextStream.end();
+        } catch(ex) {console.log("Error sending success message:"+ex);}
       }
-    }
-    sendErrmes("Internal error.");
+    });
   }
   
+  function cmd_connectVnc(ws, targetId) {
+    var host = getHostById(targetId);
+    
+    if(!host)               { sendErrmes("Internal error.", true); return; }
+    if(!isAuthorized(host)) { sendErrmes("Forbidden.", true); return; }
+    
+    writeAuditLog("ConnectVNC", targetId);
+    
+    startVncPipe(host);
+    
+  }
+  
+  var connKeyCounter = 1;
   function startVncPipe(host) {
+    var connKey = ++connKeyCounter;
+    currConns[connKey] = { to: host.id, from: client.user.username+'@'+getRemoteEnd(), start: new Date() };
+    
     console.log("starting vnc connection to "+host.hostname+":"+host.vncport);
     var sTarget = net.connect(host.vncport, host.hostname, function() {
       console.log("vnc connection established");
@@ -167,14 +215,15 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
     });
     
     function tearDown() {
-      console.log("Tearing down connection");
+      console.log("Tearing down connection"); delete currConns[connKey]; writeAuditLog("TearDown", targetId);
       sTarget.end(); cleartextStream.end();
     }
     
     var bbTarget = new BinaryBuffer(sTarget);
     bbTarget.request(12, function(prelude) {
       console.log("received server prelude:"+prelude);
-      
+    
+      Put().word16be(0x00).write(cleartextStream); //tell the vincy client everything's fine
       
       Put().put(prelude).write(cleartextStream); //pass the prelude received from targetserver to client
       
@@ -251,7 +300,9 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
     bbTarget.debugName="<- vncServer";
   }
 });
-
+server.on("error", function(err) {
+  console.log("Server error: ",err);
+})
 
 function getHostlist() {
   var hostlist = fs.readFileSync(confDir + '/hostlist.txt').toString().split(/\n/);
@@ -276,6 +327,7 @@ function getUserlist() {
 }
 
 server.listen(config.listen_port || 44711);
+console.log("Listening on "+(config.listen_port || 44711));
 
 function printHostlist() {
   var h = getHostlist();
@@ -287,8 +339,10 @@ function doPingProbe() {
   var hosts = getHostlist();
   hosts.forEach(function (host) {
     ping.sys.probe(host.hostname, function(isAlive){
-      var msg = isAlive ? 'host ' + host.id + ' is alive' : 'host ' + host.id + ' is dead';
-      if (isAlive !== pingResults[host.id]) fs.appendFileSync('/tmp/pingprobes.log', new Date()+"\t"+msg+"\n");
+      var msg =new Date()+"\t"+ host.id + "\t" +(isAlive ? 'online' : 'n/a');
+      if (isAlive !== pingResults[host.id]) {
+        fs.appendFileSync('/tmp/pingprobes.log', msg+"\n"); console.log(msg);
+      }
       pingResults[host.id] = isAlive;
     });
   });

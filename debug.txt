@@ -14,3 +14,8 @@ cat <(echo "RFB 003.008\n\0x01\0x02\0x00\0x00\0x00\0x02xxxxxxxxxxxxxxxxyyyyyyyyy
 cat hostlist.txt | awk '$1 != "" && !/#/ { print $1 }'|tr '\n' ','; echo ""
 
 
+
+# make pingprobes.log more readable
+cat /tmp/pingprobes.log | awk '{AA=substr($0,0,40);}; XX != AA{print"--------";XX=AA;}; {print $0}'
+
+
