@@ -129,7 +129,7 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
     var out = "";
     for(var i in hostlist ) {
       var d = hostlist[i];
-      if (client.user.allowedhosts.indexOf(targetId) == -1 &&
+      if (client.user.allowedhosts.indexOf(host.id) == -1 &&
           client.user.allowedhosts.indexOf("%"+host.group) == -1) continue;
       out += d.id+"\t"+d.hostname+"\t"+d.group+"\t"+pingResults[d.id]+"\t"+d.macaddress+"\t"+d.comment+"\n";
     }
