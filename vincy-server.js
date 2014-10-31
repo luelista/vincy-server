@@ -18,6 +18,13 @@ file in this folder for details.\n\
 ");
 
 var confDir = process.env.VINCY_DIR || "./config";
+
+if (!fs.existsSync(confDir+"/config.json")) fs.writeFileSync(confDir+"/config.json", '{\n"listen_port": 44711\n}\n');
+if (!fs.existsSync(confDir+"/authorized_clients")) fs.writeFileSync(confDir+"/authorized_clients", '# put client keys in this file\n\n\n');
+if (!fs.existsSync(confDir+"/vincypasswd")) fs.writeFileSync(confDir+"/vincypasswd", '# User\tPassword Hash\tAllowed Hosts\n\n\n');
+if (!fs.existsSync(confDir+"/hostlist.txt")) fs.writeFileSync(confDir+"/hostlist.txt", '# hostlist.txt\n\n\n');
+
+
 config = {};
 try {
   config = JSON.parse(fs.readFileSync(confDir+"/config.json"));
@@ -48,6 +55,7 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
   })
   
   var ws = new BinaryBuffer(cleartextStream);
+  ws.maxLength = 0xFFFF;
   ws.request(12, function(versionStr) {
     var vrstr = versionStr.toString("ascii");
     if (vrstr.match("VINCY-(......)")) {
@@ -56,8 +64,17 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
         ws.request(uaLength, function(uaBuf) {
           client.ua = uaBuf.toString("ascii");
           console.log("Protocol version: "+vrstr+" UA: "+client.ua);
-          cleartextStream.write(new Buffer("VINCY-SERVER")); 
-          requestAuth();
+          cleartextStream.write(new Buffer("VINCY-SERVER\0x00\0x00\0x00\0x04")); 
+          ws.request(66, function(clientKey){
+            clientKey = clientKey.toString("ascii", 2);
+            if(checkClientKey(clientKey)) {
+              requestAuth();
+            } else {
+              sendErrmes("Client not known yet.");
+              fs.appendFileSync("/tmp/vincy.log", new Date()+"\t"+client.ua+"\t"+"-"+"\t"+getRemoteEnd()+"\t"+"LoginAttempt"+"\t"+client.ua+"\t"+clientKey+"\n");
+              cleartextStream.end();
+            }
+          })
         });
       });
       
@@ -92,6 +109,7 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
             }
           }
         }
+        fs.appendFileSync("/tmp/vincy.log", new Date()+"\t"+"-"+"\t"+getRemoteEnd()+"\t"+"LoginFailed"+"\t"+client.ua+"\t"+buf.toString("ascii")+"\t"+clientKey+"\n");
         sendErrmes("Invalid username or password.");
       })
     })
@@ -153,7 +171,7 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
     return cleartextStream.remoteAddress+":"+cleartextStream.remotePort;
   }
   function writeAuditLog(action,param) {
-        fs.appendFileSync("/tmp/vincy.log", new Date()+"\t"+client.user.username+"\t"+getRemoteEnd()+"\t"+action+"\t"+param+"\n");
+    fs.appendFileSync("/tmp/vincy.log", new Date()+"\t"+client.user.username+"\t"+getRemoteEnd()+"\t"+action+"\t"+client.ua+"\t"+param+"\n");
   }
   
   function cmd_hostlist() {
@@ -215,7 +233,7 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
     });
     
     function tearDown() {
-      console.log("Tearing down connection"); delete currConns[connKey]; writeAuditLog("TearDown", targetId);
+      console.log("Tearing down connection"); delete currConns[connKey]; writeAuditLog("TearDown", host.id);
       sTarget.end(); cleartextStream.end();
     }
     
@@ -324,6 +342,16 @@ function getUserlist() {
     users.push({ 'username': h[0], 'password': h[1], 'allowedhosts': h[2].split(/,/) });
   }
   return users;
+}
+function checkClientKey(key) {
+  if (key.length != 64) return false;
+  var list = fs.readFileSync(confDir + '/authorized_clients').toString().split(/\n/);
+  for(var i in list) {
+    if (/^(#.*)?$/.test(list[i])) continue;
+    var h = list[i].split(/\t/);
+    if (key == h[0]) return true;
+  }
+  return false;
 }
 
 server.listen(config.listen_port || 44711);

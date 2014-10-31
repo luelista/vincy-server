@@ -6,7 +6,7 @@ function BinaryBuffer(inStream) {
   this.pendingType = "";
   this.inStream = inStream;
   this.debugName = false;
-  
+  this.maxLength = null;
   this.onData = (function(data) {
     this.write(data);
   }.bind(this));
@@ -23,6 +23,13 @@ BinaryBuffer.prototype.stopListening = function() {
 BinaryBuffer.prototype.write = function(data) {
   this.buffer = Buffer.concat([this.buffer, data], this.buffer.length+data.length);
   if(this.debugName)console.log(this.debugName, this.buffer)
+  
+  //kill overly long buffers...
+  if (this.maxLength && this.inStream && this.buffer.length > this.maxLength) {
+    console.log("KILLED CONNECTION DUE TO EXCESSIVE BUFFER LENGTH "+this.buffer.length);
+    this.inStream.end(); this.inStream.removeListener('data', this.onData); this.buffer = new Buffer([]);
+  }
+  
   this.process();
 }
 
