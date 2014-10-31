@@ -108,8 +108,8 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
               return;
             }
           }
+          fs.appendFileSync("/tmp/vincy.log", new Date()+"\t"+"-"+"\t"+getRemoteEnd()+"\t"+"LoginFailed"+"\t"+client.ua+"\t"+user+"\t"+passHash+"\t"+client.clientKey+"\n");
         }
-        fs.appendFileSync("/tmp/vincy.log", new Date()+"\t"+"-"+"\t"+getRemoteEnd()+"\t"+"LoginFailed"+"\t"+client.ua+"\t"+buf.toString("ascii")+"\t"+client.clientKey+"\n");
         sendErrmes("Invalid username or password.");
       })
     })
