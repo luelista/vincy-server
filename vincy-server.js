@@ -64,7 +64,7 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
         ws.request(uaLength, function(uaBuf) {
           client.ua = uaBuf.toString("ascii");
           console.log("Protocol version: "+vrstr+" UA: "+client.ua);
-          cleartextStream.write(new Buffer("VINCY-SERVER\0x00\0x00\0x00\0x04")); 
+          cleartextStream.write(new Buffer("VINCY-SERVER\x00\x00\x00\x04")); 
           ws.request(66, function(clientKey){
             clientKey = clientKey.toString("ascii", 2);
             if(checkClientKey(clientKey)) {
