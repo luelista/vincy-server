@@ -66,12 +66,12 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
           console.log("Protocol version: "+vrstr+" UA: "+client.ua);
           cleartextStream.write(new Buffer("VINCY-SERVER\x00\x00\x00\x04")); 
           ws.request(66, function(clientKey){
-            clientKey = clientKey.toString("ascii", 2);
-            if(checkClientKey(clientKey)) {
+            client.clientKey = clientKey.toString("ascii", 2);
+            if(checkClientKey(client.clientKey)) {
               requestAuth();
             } else {
               sendErrmes("Client not known yet.");
-              fs.appendFileSync("/tmp/vincy.log", new Date()+"\t"+client.ua+"\t"+"-"+"\t"+getRemoteEnd()+"\t"+"LoginAttempt"+"\t"+client.ua+"\t"+clientKey+"\n");
+              fs.appendFileSync("/tmp/vincy.log", new Date()+"\t"+client.ua+"\t"+"-"+"\t"+getRemoteEnd()+"\t"+"LoginAttempt"+"\t"+client.ua+"\t"+client.clientKey+"\n");
               cleartextStream.end();
             }
           })
@@ -109,7 +109,7 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
             }
           }
         }
-        fs.appendFileSync("/tmp/vincy.log", new Date()+"\t"+"-"+"\t"+getRemoteEnd()+"\t"+"LoginFailed"+"\t"+client.ua+"\t"+buf.toString("ascii")+"\t"+clientKey+"\n");
+        fs.appendFileSync("/tmp/vincy.log", new Date()+"\t"+"-"+"\t"+getRemoteEnd()+"\t"+"LoginFailed"+"\t"+client.ua+"\t"+buf.toString("ascii")+"\t"+client.clientKey+"\n");
         sendErrmes("Invalid username or password.");
       })
     })
