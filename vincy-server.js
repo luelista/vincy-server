@@ -5,7 +5,8 @@ var net = require("net"),
     Put = require("put"),
     crypto = require("crypto")
     ping = require("ping"),
-    wol = require("wake_on_lan");
+    wol = require("wake_on_lan"),
+    child_process = require('child_process');
 
 
 console.log("\n---------------------------------------------\n\
@@ -195,16 +196,22 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
     
     writeAuditLog("WakeOnLan", targetId);
     
-    wol.wake(host.macaddress, function(error) {
-      if (error) {
-        sendErrmes("Wake on lan failed: "+error, true);
-      } else {
-        try {
-          Put().word16be(0x00).write(cleartextStream); //tell the vincy client everything's fine
-          cleartextStream.end();
-        } catch(ex) {console.log("Error sending success message:"+ex);}
-      }
-    });
+    if(config.wakeonlan_exec) {
+      child_process.exec(config.wakeonlan_exec+" "+host.macaddress);
+      Put().word16be(0x00).write(cleartextStream); //tell the vincy client everything's fine
+      cleartextStream.end();
+    } else {
+      wol.wake(host.macaddress, function(error) {
+        if (error) {
+          sendErrmes("Wake on lan failed: "+error, true);
+        } else {
+          try {
+            Put().word16be(0x00).write(cleartextStream); //tell the vincy client everything's fine
+            cleartextStream.end();
+          } catch(ex) {console.log("Error sending success message:"+ex);}
+        }
+      });
+    }
   }
   
   function cmd_connectVnc(ws, targetId) {
