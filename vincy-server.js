@@ -147,6 +147,9 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
         case 0x03:
           cmd_sendWakeonlan(cmdArg);
           break;
+        case 0x04:
+          cmd_connectTcpPort(cmdArg);
+          break;
         default:
           sendErrmes("Unknown command.", true);
           break;
@@ -214,6 +217,38 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
     }
   }
   
+  function cmd_connectTcpPort(parameter) {
+    parameter = parameter.split(":");
+    var targetId = parameter[0], portNo = parseInt(parameter[1], 10);
+    var host = getHostById(targetId);
+    
+    if(!host)               { sendErrmes("Internal error.", true); return; }
+    if(!isAuthorized(host)) { sendErrmes("Forbidden.", true); return; }
+    
+    writeAuditLog("ConnectTCP", targetId+"\t" + portNo);
+    
+    function tearDown() {
+      console.log("Tearing down connection"); writeAuditLog("TearDown", host.id);
+      sTarget.end(); cleartextStream.end();
+    }
+    
+    var sTarget = net.connect(portNo, host.hostname, function() {
+      console.log("tcp "+portNo+" connection established");
+      Put().word16be(0x00).write(cleartextStream); //tell the vincy client everything's fine
+      
+      ws.stopListening();
+      sTarget.write(ws.buffer);
+      
+      cleartextStream.pipe(sTarget);
+      sTarget.pipe(cleartextStream);
+    }).on("error", function(err) {
+      console.log("TCP connect error: "+err); tearDown();
+    }).on("end", function() {
+      tearDown();
+    });
+    
+  }
+  
   function cmd_connectVnc(ws, targetId) {
     var host = getHostById(targetId);
     
@@ -247,7 +282,7 @@ var server = tls.createServer(tlsOptions, function(cleartextStream) {
     var bbTarget = new BinaryBuffer(sTarget);
     bbTarget.request(12, function(prelude) {
       console.log("received server prelude:"+prelude);
-    
+      
       Put().word16be(0x00).write(cleartextStream); //tell the vincy client everything's fine
       
       Put().put(prelude).write(cleartextStream); //pass the prelude received from targetserver to client
